@@ -24,28 +24,21 @@ jobs:
           base="https://mgtv.ottiptv.cc"
           files=("huyayqk.m3u" "douyuyqk.m3u" "bililive.m3u")
 
-          # ---- 只在下载成功后才覆盖原文件 ----
+          # 下载函数（带重试，成功后才覆盖原文件）
           download_with_retry () {
             local url="$1"
             local outfile="$2"
-            local tmpfile="${outfile}.tmp"   # 临时文件
+            local tmpfile="${outfile}.tmp"
             local attempt=1
             local max=5
 
-            rm -f "$tmpfile"                 # 保证干净起步
+            rm -f "$tmpfile"
             while [ $attempt -le $max ]; do
               echo "➡️  [$attempt/$max] 下载 $outfile ..."
               if wget -q --timeout=15 --connect-timeout=10 "$url" -O "$tmpfile"; then
-                if [ -s "$tmpfile" ]; then   # 有内容才算成功
+                if [ -s "$tmpfile" ]; then
                   mv "$tmpfile" "$outfile"
                   echo "✅ $outfile 下载并覆盖完成"
-
-                  # # ---- douyuyqk.m3u 额外处理 ----
-                  # if [ "$outfile" = "douyuyqk.m3u" ]; then
-                  #   sed -i 's#https://live.ottiptv.cc#https://goodiptv.club#g' "$outfile"
-                  #   echo "🔧 已将 $outfile 中的 live.ottiptv.cc 替换为 goodiptv.club"
-                  # fi
-
                   return 0
                 fi
               fi
@@ -55,7 +48,7 @@ jobs:
             done
 
             echo "❌ $outfile 最终下载失败，保留旧版本"
-            rm -f "$tmpfile"                 # 不动旧文件
+            rm -f "$tmpfile"
             return 1
           }
 
@@ -64,6 +57,7 @@ jobs:
             download_with_retry "${base}/${f}?token=${TOKEN}" "$f" || true
           done
 
+          # 显示下载结果
           echo "📊 文件下载状态："
           for f in "${files[@]}"; do
             if [ -s "$f" ]; then
@@ -73,15 +67,20 @@ jobs:
             fi
           done
 
-          git config --local user.name  "github-actions[bot]"
+          # 配置 Git 用户信息
+          git config --local user.name "github-actions[bot]"
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
 
-          # 只有真正发生变更时才提交
-          if git diff --quiet -- *.m3u; then
+          # 检测是否有变更（包括新文件、修改、删除）
+          # 先将所有 .m3u 文件加入暂存区（文件不存在时不会报错）
+          git add -N *.m3u 2>/dev/null || true
+          # 检查暂存区和工作区是否有差异
+          if git diff --cached --quiet && git diff --quiet; then
             echo "ℹ️ 没有检测到文件变更，跳过提交"
             exit 0
           fi
 
+          # 将实际变动的文件加入暂存区
           git add *.m3u
           git commit -m "chore: auto-update IPTV playlists - $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
           echo "✅ 文件已提交"
